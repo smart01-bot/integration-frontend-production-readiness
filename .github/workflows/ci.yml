@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Syntax check all backend modules
+        run: node --check index.js && for f in controllers/*.js middleware/*.js services/*.js routes/*.js; do node --check "$f"; done
+
+      - name: Start server for contract tests
+        run: |
+          node index.js &
+          echo "SERVER_PID=$!" >> $GITHUB_ENV
+          # Wait for the server to answer (no real Supabase in CI — the
+          # server must still boot and answer health/read 5xx-less).
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:8800/api/v1/health > /dev/null && break
+            sleep 1
+          done
+        env:
+          NODE_ENV: test
+          PORT: 8800
+          SUPABASE_URL: http://localhost:54321 # placeholder; auth verifies remotely but contract tests only assert status codes
+          SUPABASE_SERVICE_ROLE_KEY: test-key
+          ALLOWED_ORIGINS: http://localhost:3000
+
+      - name: Contract tests
+        run: npx jest tests/contract.test.js --ci --runInBand
+        env:
+          BASE_URL: http://localhost:8800
+
+      - name: Stop server
+        if: always()
+        run: kill $SERVER_PID || true
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tourderotary-dsm
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: tourderotary-dsm/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run type-check
+
+      - name: Build
+        run: npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+          NEXT_PUBLIC_API_BASE_URL: http://localhost:8800

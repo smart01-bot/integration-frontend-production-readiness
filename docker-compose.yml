@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  api:
+    build: .
+    container_name: tourderotary-dsm-backend
+    restart: unless-stopped
+    ports:
+      - "8800:8800"
+    env_file:
+      - .env
+    environment:
+      - PORT=8800
+      - NODE_ENV=production
